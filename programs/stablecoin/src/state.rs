@@ -24,3 +24,44 @@ pub struct Config {
     pub bump: u8,               // store bump seed for this config account
     pub bump_mint_account: u8,  // store bump seed for the stablecoin mint account PDA
 }
+
+pub fn process_deposit_collateral_and_mint_tokens(
+    ctx: Context<DepositCollateralAndMintTokens>,
+    amount_collateral: u64,
+    amount_to_mint: u64,
+) -> Result<()> {
+    let collateral_account = &mut ctx.accounts.collateral_account;
+    collateral_account.lamport_balance = ctx.accounts.sol_account.lamports() + amount_collateral;
+    collateral_account.amount_minted += amount_to_mint;
+
+    if !collateral_account.is_initialized {
+        collateral_account.is_initialized = true;
+        collateral_account.depositor = ctx.accounts.depositor.key();
+        collateral_account.sol_account = ctx.accounts.sol_account.key();
+        collateral_account.token_account = ctx.accounts.token_account.key();
+        collateral_account.bump = ctx.bumps.collateral_account;
+        collateral_account.bump_sol_account = ctx.bumps.sol_account;
+    }
+
+    check_health_factor(
+        &ctx.accounts.collateral_account,
+        &ctx.accounts.config_account,
+        &ctx.accounts.price_update,
+    )?;
+
+    deposit_sol_internal(
+        &ctx.accounts.depositor,
+        &ctx.accounts.sol_account,
+        &ctx.accounts.system_program,
+        amount_collateral,
+    )?;
+
+    mint_tokens_internal(
+        &ctx.accounts.mint_account,
+        &ctx.accounts.token_account,
+        &ctx.accounts.token_program,
+        ctx.accounts.config_account.bump_mint_account,
+        amount_to_mint,
+    )?;
+    Ok(())
+}
